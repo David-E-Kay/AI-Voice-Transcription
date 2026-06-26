@@ -7,6 +7,8 @@ import importlib.util
 
 import numpy as np
 import sounddevice as sd
+import pyperclip
+import keyboard
 
 from dictate_core import frames_to_audio, is_too_short, clean_text
 
@@ -89,3 +91,23 @@ class Engine:
             audio, language="en", beam_size=1, vad_filter=True,
         )
         return "".join(seg.text for seg in segments)
+
+
+def inject(text):
+    """Paste text into the active window via clipboard, then restore the old clipboard.
+    ponytail: restore is text-only — non-text clipboard (images/files) is lost. Upgrade to
+    full Win32 clipboard save/restore only if that ever bites. The 0.1 s sleep is a tuning
+    knob: raise it if a slow app pastes stale/empty content before reading the clipboard."""
+    if not text:
+        return
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = ""
+    pyperclip.copy(text)
+    keyboard.send("ctrl+v")
+    time.sleep(0.1)
+    try:
+        pyperclip.copy(previous)
+    except Exception:
+        pass
