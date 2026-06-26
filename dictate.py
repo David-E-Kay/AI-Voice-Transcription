@@ -111,3 +111,57 @@ def inject(text):
         pyperclip.copy(previous)
     except Exception:
         pass
+
+
+class App:
+    """Glues recorder + engine + injection behind a 3-state guard so overlapping
+    key events are safe. State transitions are serialized by a lock."""
+
+    def __init__(self):
+        self.recorder = Recorder()
+        self.engine = Engine()
+        self.state = "IDLE"
+        self.lock = threading.Lock()
+
+    def on_press(self):
+        # Windows sends key-repeat while held; the guard makes repeats no-ops.
+        with self.lock:
+            if self.state != "IDLE":
+                return
+            self.state = "RECORDING"
+        self.recorder.start()
+
+    def on_release(self):
+        with self.lock:
+            if self.state != "RECORDING":
+                return
+            self.state = "PROCESSING"
+        audio = self.recorder.stop()
+        # ponytail: a tap during PROCESSING is dropped (guard above). Swap to a queue
+        # only if rapid back-to-back dictation becomes a real need.
+        threading.Thread(target=self._process, args=(audio,), daemon=True).start()
+
+    def _process(self, audio):
+        try:
+            if is_too_short(audio):
+                return
+            text = clean_text(self.engine.transcribe(audio))
+            inject(text)  # pastes into whatever window has focus now (focus-loss is inherent)
+        except Exception as e:
+            print("dictation error:", e)
+        finally:
+            with self.lock:
+                self.state = "IDLE"
+
+
+def main():
+    print("Loading model... (first run downloads it)")
+    app = App()
+    keyboard.on_press_key(HOTKEY, lambda e: app.on_press())
+    keyboard.on_release_key(HOTKEY, lambda e: app.on_release())
+    print(f"Ready. Hold [{HOTKEY}] to dictate. Press Ctrl+C here to quit.")
+    keyboard.wait()
+
+
+if __name__ == "__main__":
+    main()
