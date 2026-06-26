@@ -1,0 +1,11 @@
+faster-whisper==1.2.1
+sounddevice==0.5.5
+numpy==2.5.0
+keyboard==0.13.5
+pyperclip==1.9.0
+
+# Required for GPU on this machine (no system CUDA on PATH). Provides cuBLAS 12 + cuDNN 9.
+# dictate.py prepends their bin dirs to PATH at startup (see _add_cuda_dlls).
+# Tested: nvidia-cublas-cu12==12.9.2.10, nvidia-cudnn-cu12==9.23.2.1
+nvidia-cublas-cu12
+nvidia-cudnn-cu12
