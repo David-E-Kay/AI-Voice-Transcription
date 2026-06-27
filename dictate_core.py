@@ -1,13 +1,11 @@
 """Pure helpers for the dictation utility — numpy-only, no hardware/heavy imports.
 Kept separate so they unit-test without importing keyboard/sounddevice/faster_whisper."""
-import re
-
 import numpy as np
 
 
 def clean_text(text):
     """Normalize Whisper output for injection: strip ends, collapse internal whitespace."""
-    return re.sub(r"\s+", " ", text).strip()
+    return " ".join(text.split())
 
 
 def frames_to_audio(frames):
