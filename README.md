@@ -10,17 +10,15 @@ pasted into the active window. Zero cloud. English only.
     python dictate.py        # first run downloads ~1.6 GB model
 
 ## Autostart
-For a headless login launch, the Startup-folder shortcut must point **directly at the venv
-`pythonw.exe`** with `dictate.py` as its argument (pythonw is windowless). Create/refresh it:
+Uses Task Scheduler (not the Startup folder) so it restarts automatically on crash. Register once:
 
     $r = "C:\path\to\AI Voice Transcription"
-    $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\Dictation.lnk")
-    $s.TargetPath = "$r\.venv\Scripts\pythonw.exe"; $s.Arguments = "`"$r\dictate.py`""
-    $s.WorkingDirectory = $r; $s.Save()
+    $action = New-ScheduledTaskAction -Execute "$r\.venv\Scripts\pythonw.exe" -Argument "`"$r\dictate.py`"" -WorkingDirectory $r
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $settings = New-ScheduledTaskSettingsSet -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 10 -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
+    Register-ScheduledTask -TaskName "AI Voice Dictation" -Action $action -Trigger $trigger -Settings $settings -RunLevel Limited -Force
 
-Do **not** point the shortcut at `run_dictation.bat` — a `.bat` runs under `cmd`, which keeps a
-console window open the whole session. The bat is only for manual double-click runs (close its
-console to quit).
+To start immediately without rebooting: `Start-ScheduledTask -TaskName "AI Voice Dictation"`
 
 ## GPU notes
 INT8 `large-v3-turbo` uses ~1.6 GB VRAM (compute_type `int8_float16`). On a 4 GB laptop GPU

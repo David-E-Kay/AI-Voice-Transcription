@@ -18,9 +18,9 @@ Run (first run downloads ~1.6 GB model into the HF cache):
     .\.venv\Scripts\python.exe dictate.py     # console; Ctrl+C to quit
     run_dictation.bat                          # manual double-click run — opens a cmd console
 
-Autostart at login = a Startup-folder `.lnk` pointing at `.venv\Scripts\pythonw.exe` with
-`dictate.py` as its argument (headless). Don't autostart via the `.bat`: `cmd` keeps a console
-window open the whole session. See README "Autostart".
+Autostart at login = Task Scheduler entry `"AI Voice Dictation"` running
+`.venv\Scripts\pythonw.exe dictate.py` headless, restarts on crash (up to 10×, 1 min apart).
+See README "Autostart" for the registration command.
 
 Tests:
 
