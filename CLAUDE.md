@@ -16,7 +16,11 @@ Setup (Python 3.14 venv lives in `.venv`):
 Run (first run downloads ~1.6 GB model into the HF cache):
 
     .\.venv\Scripts\python.exe dictate.py     # console; Ctrl+C to quit
-    run_dictation.bat                          # pythonw, no console (autostart target)
+    run_dictation.bat                          # manual double-click run — opens a cmd console
+
+Autostart at login = a Startup-folder `.lnk` pointing at `.venv\Scripts\pythonw.exe` with
+`dictate.py` as its argument (headless). Don't autostart via the `.bat`: `cmd` keeps a console
+window open the whole session. See README "Autostart".
 
 Tests:
 
