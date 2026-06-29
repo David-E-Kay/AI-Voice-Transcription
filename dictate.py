@@ -5,10 +5,15 @@ import time
 import threading
 import importlib.util
 
+import queue
 import numpy as np
 import sounddevice as sd
 import pyperclip
 import keyboard
+from ctypes import cast, POINTER
+import comtypes
+from comtypes import CLSCTX_ALL
+from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 from dictate_core import frames_to_audio, is_too_short, clean_text
 
@@ -122,6 +127,22 @@ class App:
         self.engine = Engine()
         self.state = "IDLE"
         self.lock = threading.Lock()
+        self._mute_q = queue.SimpleQueue()
+        # ponytail: dedicated thread keeps COM calls off the keyboard hook thread,
+        # which has a ~200ms Windows timeout that COM init easily exceeds.
+        threading.Thread(target=self._mute_worker, daemon=True).start()
+
+    def _mute_worker(self):
+        comtypes.CoInitialize()
+        dev = AudioUtilities.GetSpeakers()
+        iface = dev._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        vol = cast(iface, POINTER(IAudioEndpointVolume))
+        while True:
+            muted = self._mute_q.get()
+            try:
+                vol.SetMute(muted, None)
+            except Exception:
+                pass
 
     def on_press(self):
         # Windows sends key-repeat while held; the guard makes repeats no-ops.
@@ -130,6 +151,7 @@ class App:
                 return
             self.state = "RECORDING"
         self.recorder.start()
+        self._mute_q.put(1)
 
     def on_release(self):
         with self.lock:
@@ -137,6 +159,7 @@ class App:
                 return
             self.state = "PROCESSING"
         audio = self.recorder.stop()
+        self._mute_q.put(0)
         # ponytail: a tap during PROCESSING is dropped (guard above). Swap to a queue
         # only if rapid back-to-back dictation becomes a real need.
         threading.Thread(target=self._process, args=(audio,), daemon=True).start()
@@ -157,8 +180,8 @@ class App:
 def main():
     print("Loading model... (first run downloads it)")
     app = App()
-    keyboard.on_press_key(HOTKEY, lambda e: app.on_press())
-    keyboard.on_release_key(HOTKEY, lambda e: app.on_release())
+    keyboard.on_press_key(HOTKEY, lambda e: app.on_press() if e.name == HOTKEY else None)
+    keyboard.on_release_key(HOTKEY, lambda e: app.on_release() if e.name == HOTKEY else None)
     print(f"Ready. Hold [{HOTKEY}] to dictate. Press Ctrl+C here to quit.")
     keyboard.wait()
 
