@@ -1,4 +1,5 @@
 import time
+import queue
 import numpy as np
 import dictate
 
@@ -25,6 +26,11 @@ class FakeEngine:
         return "  hello world  "  # clean_text should normalize to "hello world"
 
 
+class FakeOverlay:
+    def __init__(self, *a, **k):
+        self.queue = queue.SimpleQueue()
+
+
 def _wait_until(predicate, timeout=3.0):
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -38,6 +44,7 @@ def _build_app(monkeypatch):
     calls = []
     monkeypatch.setattr(dictate, "Recorder", FakeRecorder)
     monkeypatch.setattr(dictate, "Engine", FakeEngine)
+    monkeypatch.setattr(dictate, "Overlay", FakeOverlay)
     monkeypatch.setattr(dictate, "inject", lambda t: calls.append(t))
     return dictate.App(), calls
 

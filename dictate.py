@@ -2,8 +2,12 @@
 import os
 import glob
 import time
+import math
+import ctypes
+import ctypes.wintypes
 import threading
 import importlib.util
+import tkinter as tk
 
 import queue
 import numpy as np
@@ -29,10 +33,12 @@ class Recorder:
         self.samplerate = samplerate
         self._frames = []
         self._stream = None
+        self.level = 0.0
 
     def _callback(self, indata, frames, time_info, status):
         # ponytail: ignore `status` overflows — a dropped mic frame in dictation is harmless.
         self._frames.append(indata.copy())
+        self.level = float(np.sqrt(np.mean(np.square(indata))))
 
     def start(self):
         self._frames = []
@@ -118,6 +124,114 @@ def inject(text):
         pass
 
 
+BAR_COLOR = "#39FF14"  # neon green
+BAR_COUNT = 5
+BAR_WIDTH = 8
+BAR_GAP = 6
+MAX_BAR_HEIGHT = 40
+# ponytail: typical mic RMS while speaking on this hardware is ~0.01-0.08; this gain maps
+# that range onto the 0-1 bar scale. Retune if bars look maxed-out or barely move.
+LEVEL_GAIN = 10.0
+
+
+class Overlay(tk.Tk):
+    """Borderless, topmost HUD: a neon-green equalizer that pulses with live mic level
+    while RECORDING. Runs entirely on the Tk main thread; App talks to it only through
+    `queue` (thread-safe put), since on_press/on_release fire from keyboard's own hook
+    thread, same reason the COM mute worker above uses a queue instead of direct calls."""
+
+    def __init__(self, recorder):
+        super().__init__()
+        self.recorder = recorder
+        self.queue = queue.SimpleQueue()
+        self._visible = False
+
+        self._width = BAR_COUNT * (BAR_WIDTH + BAR_GAP) + BAR_GAP
+        self._height = MAX_BAR_HEIGHT + BAR_GAP * 2
+        width, height = self._width, self._height
+
+        self.overrideredirect(True)
+        self.attributes("-topmost", True)
+        self.attributes("-transparentcolor", "black")
+        self.configure(bg="black")
+        x = self.winfo_screenwidth() - width - 20
+        y = self.winfo_screenheight() - height - 60
+        self.geometry(f"{width}x{height}+{x}+{y}")
+
+        self.canvas = tk.Canvas(self, width=width, height=height, bg="black", highlightthickness=0)
+        self.canvas.pack()
+        self._floor = height - BAR_GAP
+        self.bars = [
+            self.canvas.create_rectangle(
+                BAR_GAP + i * (BAR_WIDTH + BAR_GAP), self._floor,
+                BAR_GAP + i * (BAR_WIDTH + BAR_GAP) + BAR_WIDTH, self._floor,
+                fill=BAR_COLOR, outline="",
+            )
+            for i in range(BAR_COUNT)
+        ]
+
+        self.withdraw()
+        self._make_noactivate()
+        self._poll_queue()
+
+    def _make_noactivate(self):
+        # ponytail: stdlib ctypes, no pywin32 dep. WS_EX_NOACTIVATE + TOOLWINDOW stop this
+        # HUD from stealing keyboard focus from whatever window you're dictating into
+        # (verified empirically: the very first Tk() map briefly grabs focus regardless -
+        # a one-time blip at process startup - but every later show()/hide() doesn't,
+        # once this style is set on the hidden window beforehand).
+        self.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(self.winfo_id())
+        GWL_EXSTYLE = -20
+        WS_EX_NOACTIVATE = 0x08000000
+        WS_EX_TOOLWINDOW = 0x00000080
+        style = ctypes.windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+        ctypes.windll.user32.SetWindowLongW(
+            hwnd, GWL_EXSTYLE, style | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+        )
+
+    def _poll_queue(self):
+        try:
+            while True:
+                cmd = self.queue.get_nowait()
+                if cmd == "show" and not self._visible:
+                    self._visible = True
+                    self._center_on_active_window()
+                    self.deiconify()
+                    self._tick()
+                elif cmd == "hide":
+                    self._visible = False
+                    self.withdraw()
+        except queue.Empty:
+            pass
+        self.after(30, self._poll_queue)
+
+    def _center_on_active_window(self):
+        # ponytail: queried while the overlay is still hidden (NOACTIVATE means it was
+        # never the foreground window anyway), so this is genuinely the window you're
+        # dictating into. Falls back to leaving the last position alone if Windows can't
+        # give us a rect (e.g. foreground hwnd is the desktop).
+        hwnd = ctypes.windll.user32.GetForegroundWindow()
+        rect = ctypes.wintypes.RECT()
+        if not hwnd or not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return
+        cx = (rect.left + rect.right) // 2
+        cy = (rect.top + rect.bottom) // 2
+        self.geometry(f"+{cx - self._width // 2}+{cy - self._height // 2}")
+
+    def _tick(self):
+        if not self._visible:
+            return
+        level = min(self.recorder.level * LEVEL_GAIN, 1.0)
+        now = time.time()
+        for i, bar in enumerate(self.bars):
+            wobble = 0.5 + 0.5 * math.sin(now * 6 + i * 1.3)
+            h = max(4, int(level * MAX_BAR_HEIGHT * wobble))
+            x0, _, x1, _ = self.canvas.coords(bar)
+            self.canvas.coords(bar, x0, self._floor - h, x1, self._floor)
+        self.after(50, self._tick)
+
+
 class App:
     """Glues recorder + engine + injection behind a 3-state guard so overlapping
     key events are safe. State transitions are serialized by a lock."""
@@ -125,6 +239,7 @@ class App:
     def __init__(self):
         self.recorder = Recorder()
         self.engine = Engine()
+        self.overlay = Overlay(self.recorder)
         self.state = "IDLE"
         self.lock = threading.Lock()
         self._mute_q = queue.SimpleQueue()
@@ -152,6 +267,7 @@ class App:
             self.state = "RECORDING"
         self.recorder.start()
         self._mute_q.put(1)
+        self.overlay.queue.put("show")
 
     def on_release(self):
         with self.lock:
@@ -160,6 +276,7 @@ class App:
             self.state = "PROCESSING"
         audio = self.recorder.stop()
         self._mute_q.put(0)
+        self.overlay.queue.put("hide")
         # ponytail: a tap during PROCESSING is dropped (guard above). Swap to a queue
         # only if rapid back-to-back dictation becomes a real need.
         threading.Thread(target=self._process, args=(audio,), daemon=True).start()
@@ -183,7 +300,7 @@ def main():
     keyboard.on_press_key(HOTKEY, lambda e: app.on_press() if e.name == HOTKEY else None)
     keyboard.on_release_key(HOTKEY, lambda e: app.on_release() if e.name == HOTKEY else None)
     print(f"Ready. Hold [{HOTKEY}] to dictate. Press Ctrl+C here to quit.")
-    keyboard.wait()
+    app.overlay.mainloop()
 
 
 if __name__ == "__main__":
