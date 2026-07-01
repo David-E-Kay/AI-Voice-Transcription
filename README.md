@@ -1,3 +1,5 @@
+![AI Voice Transcription](docs/hero.png)
+
 # Push-to-Talk Local Dictation
 
 Hold **Right Ctrl**, speak, release — your words are transcribed locally on the GPU and
