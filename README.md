@@ -64,7 +64,6 @@ task (it restarts at next login, or `Start-ScheduledTask` it):
     Stop-ScheduledTask -TaskName "AI Voice Dictation"
 
 ## Known limitations
-- Terminals paste with **Ctrl+Shift+V**, so dictation into a terminal won't insert text.
 - Won't capture the hotkey while an **elevated/admin** window is focused (Windows UIPI).
 - Clipboard restore is **text-only**; a copied image/file is lost during a dictation.
 - Text pastes into whatever window has focus **at release** — switching windows mid-speech
