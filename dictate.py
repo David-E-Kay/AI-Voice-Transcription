@@ -126,9 +126,11 @@ def inject(text):
 
 BAR_COLOR = "#39FF14"  # neon green
 BAR_COUNT = 5
-BAR_WIDTH = 8
-BAR_GAP = 6
-MAX_BAR_HEIGHT = 40
+# ponytail: sized as a fraction of screen height (not fixed px) so the HUD reads the same
+# relative size on a 1080p laptop and a 4K monitor instead of looking tiny or oversized.
+BAR_WIDTH_FRAC = 0.015
+BAR_GAP_FRAC = 0.010
+MAX_BAR_HEIGHT_FRAC = 0.08
 # ponytail: typical mic RMS while speaking on this hardware is ~0.01-0.08; this gain maps
 # that range onto the 0-1 bar scale. Retune if bars look maxed-out or barely move.
 LEVEL_GAIN = 10.0
@@ -146,8 +148,12 @@ class Overlay(tk.Tk):
         self.queue = queue.SimpleQueue()
         self._visible = False
 
-        self._width = BAR_COUNT * (BAR_WIDTH + BAR_GAP) + BAR_GAP
-        self._height = MAX_BAR_HEIGHT + BAR_GAP * 2
+        screen_h = self.winfo_screenheight()
+        self._bar_width = round(screen_h * BAR_WIDTH_FRAC)
+        self._bar_gap = round(screen_h * BAR_GAP_FRAC)
+        self._max_bar_height = round(screen_h * MAX_BAR_HEIGHT_FRAC)
+        self._width = BAR_COUNT * (self._bar_width + self._bar_gap) + self._bar_gap
+        self._height = self._max_bar_height + self._bar_gap * 2
         width, height = self._width, self._height
 
         self.overrideredirect(True)
@@ -155,16 +161,16 @@ class Overlay(tk.Tk):
         self.attributes("-transparentcolor", "black")
         self.configure(bg="black")
         x = self.winfo_screenwidth() - width - 20
-        y = self.winfo_screenheight() - height - 60
+        y = screen_h - height - 60
         self.geometry(f"{width}x{height}+{x}+{y}")
 
         self.canvas = tk.Canvas(self, width=width, height=height, bg="black", highlightthickness=0)
         self.canvas.pack()
-        self._floor = height - BAR_GAP
+        self._floor = height - self._bar_gap
         self.bars = [
             self.canvas.create_rectangle(
-                BAR_GAP + i * (BAR_WIDTH + BAR_GAP), self._floor,
-                BAR_GAP + i * (BAR_WIDTH + BAR_GAP) + BAR_WIDTH, self._floor,
+                self._bar_gap + i * (self._bar_width + self._bar_gap), self._floor,
+                self._bar_gap + i * (self._bar_width + self._bar_gap) + self._bar_width, self._floor,
                 fill=BAR_COLOR, outline="",
             )
             for i in range(BAR_COUNT)
@@ -226,7 +232,7 @@ class Overlay(tk.Tk):
         now = time.time()
         for i, bar in enumerate(self.bars):
             wobble = 0.5 + 0.5 * math.sin(now * 6 + i * 1.3)
-            h = max(4, int(level * MAX_BAR_HEIGHT * wobble))
+            h = max(4, int(level * self._max_bar_height * wobble))
             x0, _, x1, _ = self.canvas.coords(bar)
             self.canvas.coords(bar, x0, self._floor - h, x1, self._floor)
         self.after(50, self._tick)
