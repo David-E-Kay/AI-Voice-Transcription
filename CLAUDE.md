@@ -53,8 +53,9 @@ Pipeline on release: `Recorder.stop()` → `is_too_short` guard (drops <300 ms a
   `_add_cuda_dlls()` **prepends** every `nvidia/*/bin` dir to `PATH` at startup —
   `os.add_dll_directory` does **not** work here (CTranslate2 ignores it for the transitive
   `cublasLt`/`nvrtc` loads). Don't "simplify" this back to `add_dll_directory`.
-- **Model fallback ladder for CUDA OOM** (4 GB laptop GPU): edit `Engine(...)` default
-  `large-v3-turbo` → `distil-large-v3` → `small.en`. On CPU, set `compute_type="int8"`.
+- **Model fallback ladder for CUDA OOM** (4 GB laptop GPU): set `DICTATE_MODEL`
+  `large-v3-turbo` → `distil-large-v3` → `small.en` (env var, no code edit). `DICTATE_DEVICE=cpu`
+  auto-selects `int8` compute. Explicit `Engine(...)` args still override the env.
 - **Injection is clipboard paste + restore** (`pyperclip` + `keyboard.send("ctrl+v")`), so:
   terminals (which paste with Ctrl+Shift+V) won't receive text; non-text clipboard contents
   are lost during a dictation; elevated/admin windows swallow the hotkey (Windows UIPI).

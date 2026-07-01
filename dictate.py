@@ -76,6 +76,8 @@ class Engine:
 
     Model fallback ladder if you hit CUDA OOM on the 4 GB laptop GPU:
       'large-v3-turbo' (default) -> 'distil-large-v3' -> 'small.en'
+    Override without editing code via the DICTATE_MODEL / DICTATE_DEVICE / DICTATE_COMPUTE
+    env vars (see README "Choosing a model") so users pick the VRAM/accuracy tradeoff.
 
     Quantization: 'int8_float16' = INT8 weights (smallest VRAM, ~1.6 GB, same as plain
     int8) + float16 compute. On this Ampere GPU it's equal-or-faster than plain int8 and
@@ -83,8 +85,15 @@ class Engine:
     On CPU fallback use compute_type='int8' instead.
     """
 
-    def __init__(self, model_size="large-v3-turbo", device="cuda", compute_type="int8_float16"):
+    def __init__(self, model_size=None, device=None, compute_type=None):
         from faster_whisper import WhisperModel  # heavy import deferred to construction
+        # Explicit args win (tests pass them); otherwise resolve from env, then defaults.
+        model_size = model_size or os.environ.get("DICTATE_MODEL", "large-v3-turbo")
+        device = device or os.environ.get("DICTATE_DEVICE", "cuda")
+        # int8_float16 needs a GPU; CPU can't do float16 compute, so default to int8 there.
+        compute_type = compute_type or os.environ.get("DICTATE_COMPUTE") or (
+            "int8" if device == "cpu" else "int8_float16")
+        print(f"Loading {model_size} on {device} ({compute_type})...")
         _add_cuda_dlls()
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self._warmup()
@@ -301,7 +310,7 @@ class App:
 
 
 def main():
-    print("Loading model... (first run downloads it)")
+    print("Starting dictation (first run downloads the model)...")
     app = App()
     keyboard.on_press_key(HOTKEY, lambda e: app.on_press() if e.name == HOTKEY else None)
     keyboard.on_release_key(HOTKEY, lambda e: app.on_release() if e.name == HOTKEY else None)
