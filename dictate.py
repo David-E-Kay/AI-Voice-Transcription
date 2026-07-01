@@ -113,6 +113,19 @@ class Engine:
         return "".join(seg.text for seg in segments)
 
 
+# ponytail: window classes where plain Ctrl+V isn't reliable paste (mintty/Git Bash binds
+# it to something else by default; legacy conhost needs "Ctrl key shortcuts" enabled).
+# Shift+Insert is the one paste shortcut nearly every Windows terminal emulator honors.
+_TERMINAL_CLASSES = {"mintty", "PuTTY", "ConsoleWindowClass", "CASCADIA_HOSTING_WINDOW_CLASS"}
+
+
+def _foreground_window_class():
+    hwnd = ctypes.windll.user32.GetForegroundWindow()
+    buf = ctypes.create_unicode_buffer(256)
+    ctypes.windll.user32.GetClassNameW(hwnd, buf, 256)
+    return buf.value
+
+
 def inject(text):
     """Paste text into the active window via clipboard, then restore the old clipboard.
     ponytail: restore is text-only — non-text clipboard (images/files) is lost. Upgrade to
@@ -125,7 +138,8 @@ def inject(text):
     except Exception:
         previous = ""
     pyperclip.copy(text)
-    keyboard.send("ctrl+v")
+    paste_keys = "shift+insert" if _foreground_window_class() in _TERMINAL_CLASSES else "ctrl+v"
+    keyboard.send(paste_keys)
     time.sleep(0.1)
     try:
         pyperclip.copy(previous)
