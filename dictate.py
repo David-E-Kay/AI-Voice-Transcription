@@ -240,7 +240,7 @@ class Overlay(tk.Tk):
         light = np.array(BACKDROP_RIM_LIGHT, dtype=np.float32)
         dark = np.array(BACKDROP_RIM_DARK, dtype=np.float32)
         grad = (light * (1 - t)[..., None] + dark * t[..., None]).astype(np.uint8)
-        rim = Image.fromarray(grad, "RGB")
+        rim = Image.fromarray(grad)
 
         # Rounded-rect mask; paste the rim onto a black (transparent-key) background.
         mask = Image.new("L", (w, h), 0)
