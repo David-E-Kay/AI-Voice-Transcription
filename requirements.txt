@@ -5,6 +5,7 @@ sounddevice==0.5.5
 numpy==2.5.0
 keyboard==0.13.5
 pyperclip==1.9.0
+pillow==11.3.0
 
 # Required for GPU on this machine (no system CUDA on PATH). Provides cuBLAS 12 + cuDNN 9.
 # dictate.py prepends their bin dirs to PATH at startup (see _add_cuda_dlls).

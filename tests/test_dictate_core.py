@@ -37,3 +37,18 @@ def test_is_too_short_true_for_quick_tap():
 def test_is_too_short_false_for_real_clip():
     audio = np.zeros(16000, dtype=np.float32)  # 1 s
     assert is_too_short(audio) is False
+
+
+from dictate_core import backdrop_box
+
+
+def test_backdrop_box_pads_15pct_x_and_10pct_y():
+    box_w, box_h, off_x, off_y = backdrop_box(200, 100)
+    assert (off_x, off_y) == (30, 10)          # 15% of 200, 10% of 100
+    assert (box_w, box_h) == (260, 120)        # +2*offset each dim
+
+
+def test_backdrop_box_offsets_are_symmetric():
+    box_w, box_h, off_x, off_y = backdrop_box(137, 100)
+    assert box_w == 137 + 2 * off_x
+    assert box_h == 100 + 2 * off_y

@@ -19,7 +19,9 @@ import comtypes
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
-from dictate_core import frames_to_audio, is_too_short, clean_text
+from PIL import Image, ImageDraw, ImageTk
+
+from dictate_core import frames_to_audio, is_too_short, clean_text, backdrop_box
 
 SAMPLE_RATE = 16000
 HOTKEY = "right ctrl"
@@ -158,6 +160,16 @@ MAX_BAR_HEIGHT_FRAC = 0.08
 # that range onto the 0-1 bar scale. Retune if bars look maxed-out or barely move.
 LEVEL_GAIN = 10.0
 
+# Backdrop box behind the bars: metallic silver rim around a flat charcoal core.
+# Padding is a fraction of the bar bounding box (see backdrop_box in dictate_core).
+BACKDROP_PAD_X_FRAC = 0.15
+BACKDROP_PAD_Y_FRAC = 0.10
+BACKDROP_CORNER_FRAC = 0.14   # corner radius as a fraction of box height
+BACKDROP_BEVEL_FRAC = 0.035   # silver rim band width as a fraction of box height
+BACKDROP_RIM_LIGHT = (242, 244, 246)   # top-left of the rim gradient
+BACKDROP_RIM_DARK = (91, 97, 103)      # bottom-right of the rim gradient
+BACKDROP_CORE = (45, 50, 55)           # charcoal #2d3237
+
 
 class Overlay(tk.Tk):
     """Borderless, topmost HUD: a neon-green equalizer that pulses with live mic level
@@ -175,8 +187,12 @@ class Overlay(tk.Tk):
         self._bar_width = round(screen_h * BAR_WIDTH_FRAC)
         self._bar_gap = round(screen_h * BAR_GAP_FRAC)
         self._max_bar_height = round(screen_h * MAX_BAR_HEIGHT_FRAC)
-        self._width = BAR_COUNT * (self._bar_width + self._bar_gap) + self._bar_gap
-        self._height = self._max_bar_height + self._bar_gap * 2
+        bars_w = BAR_COUNT * (self._bar_width + self._bar_gap) + self._bar_gap
+        bars_h = self._max_bar_height + self._bar_gap * 2
+        # Grow the window to the padded backdrop box; bars sit inset by (off_x, off_y).
+        self._width, self._height, off_x, off_y = backdrop_box(
+            bars_w, bars_h, BACKDROP_PAD_X_FRAC, BACKDROP_PAD_Y_FRAC
+        )
         width, height = self._width, self._height
 
         self.overrideredirect(True)
@@ -189,11 +205,15 @@ class Overlay(tk.Tk):
 
         self.canvas = tk.Canvas(self, width=width, height=height, bg="black", highlightthickness=0)
         self.canvas.pack()
-        self._floor = height - self._bar_gap
+        # Static backdrop image, drawn first so it sits under the bars. Keep a ref on
+        # self so Tk doesn't garbage-collect the PhotoImage out from under the canvas.
+        self._backdrop = ImageTk.PhotoImage(self._render_backdrop(width, height))
+        self.canvas.create_image(0, 0, anchor="nw", image=self._backdrop)
+        self._floor = height - off_y - self._bar_gap
         self.bars = [
             self.canvas.create_rectangle(
-                self._bar_gap + i * (self._bar_width + self._bar_gap), self._floor,
-                self._bar_gap + i * (self._bar_width + self._bar_gap) + self._bar_width, self._floor,
+                off_x + self._bar_gap + i * (self._bar_width + self._bar_gap), self._floor,
+                off_x + self._bar_gap + i * (self._bar_width + self._bar_gap) + self._bar_width, self._floor,
                 fill=BAR_COLOR, outline="",
             )
             for i in range(BAR_COUNT)
@@ -202,6 +222,38 @@ class Overlay(tk.Tk):
         self.withdraw()
         self._make_noactivate()
         self._poll_queue()
+
+    def _render_backdrop(self, w, h):
+        """Metallic-bevel box: a diagonal silver rim around a flat charcoal core,
+        rendered once as a PIL image (Tk's Canvas has no gradient/rounded-rect)."""
+        # ponytail: color-key transparency only drops exactly-black pixels, so the
+        # anti-aliased rounded corners leave a faint ~1px dark rim against whatever's
+        # behind. Fine for a transient HUD; upgrade path is a per-pixel-alpha layered
+        # window (UpdateLayeredWindow), a big rewrite not worth it here.
+        radius = round(h * BACKDROP_CORNER_FRAC)
+        bevel = max(2, round(h * BACKDROP_BEVEL_FRAC))
+
+        # Diagonal metallic gradient: light top-left -> dark bottom-right.
+        ys = np.linspace(0, 1, h)[:, None]
+        xs = np.linspace(0, 1, w)[None, :]
+        t = (xs + ys) / 2.0
+        light = np.array(BACKDROP_RIM_LIGHT, dtype=np.float32)
+        dark = np.array(BACKDROP_RIM_DARK, dtype=np.float32)
+        grad = (light * (1 - t)[..., None] + dark * t[..., None]).astype(np.uint8)
+        rim = Image.fromarray(grad, "RGB")
+
+        # Rounded-rect mask; paste the rim onto a black (transparent-key) background.
+        mask = Image.new("L", (w, h), 0)
+        ImageDraw.Draw(mask).rounded_rectangle([0, 0, w - 1, h - 1], radius=radius, fill=255)
+        img = Image.new("RGB", (w, h), (0, 0, 0))
+        img.paste(rim, (0, 0), mask)
+
+        # Charcoal core, inset by the bevel band so the rim reads as a border.
+        ImageDraw.Draw(img).rounded_rectangle(
+            [bevel, bevel, w - 1 - bevel, h - 1 - bevel],
+            radius=max(0, radius - bevel), fill=BACKDROP_CORE,
+        )
+        return img
 
     def _make_noactivate(self):
         # ponytail: stdlib ctypes, no pywin32 dep. WS_EX_NOACTIVATE + TOOLWINDOW stop this
