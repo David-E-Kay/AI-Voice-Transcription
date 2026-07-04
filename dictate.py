@@ -5,6 +5,7 @@ import time
 import math
 import ctypes
 import ctypes.wintypes
+import logging
 import threading
 import importlib.util
 import tkinter as tk
@@ -25,6 +26,14 @@ from dictate_core import frames_to_audio, is_too_short, clean_text, backdrop_box
 
 SAMPLE_RATE = 16000
 HOTKEY = "right ctrl"
+
+# ponytail: pythonw.exe has no console, so print()/tracebacks normally vanish; log to a
+# file instead so a crash leaves evidence behind.
+logging.basicConfig(
+    filename=os.path.join(os.path.dirname(os.path.abspath(__file__)), "dictate.log"),
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+)
 
 
 class Recorder:
@@ -95,7 +104,7 @@ class Engine:
         # int8_float16 needs a GPU; CPU can't do float16 compute, so default to int8 there.
         compute_type = compute_type or os.environ.get("DICTATE_COMPUTE") or (
             "int8" if device == "cpu" else "int8_float16")
-        print(f"Loading {model_size} on {device} ({compute_type})...")
+        logging.info(f"Loading {model_size} on {device} ({compute_type})...")
         _add_cuda_dlls()
         self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
         self._warmup()
@@ -346,6 +355,7 @@ class App:
             if self.state != "IDLE":
                 return
             self.state = "RECORDING"
+        logging.info("RECORDING")
         self.recorder.start()
         self._mute_q.put(1)
         self.overlay.queue.put("show")
@@ -355,6 +365,7 @@ class App:
             if self.state != "RECORDING":
                 return
             self.state = "PROCESSING"
+        logging.info("PROCESSING")
         audio = self.recorder.stop()
         self._mute_q.put(0)
         self.overlay.queue.put("hide")
@@ -368,21 +379,26 @@ class App:
                 return
             text = clean_text(self.engine.transcribe(audio))
             inject(text)  # pastes into whatever window has focus now (focus-loss is inherent)
-        except Exception as e:
-            print("dictation error:", e)
+        except Exception:
+            logging.exception("dictation error")
         finally:
             with self.lock:
                 self.state = "IDLE"
+            logging.info("IDLE")
 
 
 def main():
-    print("Starting dictation (first run downloads the model)...")
+    logging.info("Starting dictation (first run downloads the model)...")
     app = App()
     keyboard.on_press_key(HOTKEY, lambda e: app.on_press() if e.name == HOTKEY else None)
     keyboard.on_release_key(HOTKEY, lambda e: app.on_release() if e.name == HOTKEY else None)
-    print(f"Ready. Hold [{HOTKEY}] to dictate. Press Ctrl+C here to quit.")
+    logging.info(f"Ready. Hold [{HOTKEY}] to dictate. Press Ctrl+C here to quit.")
     app.overlay.mainloop()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logging.exception("fatal error, exiting")
+        raise

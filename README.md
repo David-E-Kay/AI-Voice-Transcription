@@ -18,11 +18,20 @@ Uses Task Scheduler (not the Startup folder) so it restarts automatically on cra
 
     $r = "C:\path\to\AI Voice Transcription"
     $action = New-ScheduledTaskAction -Execute "$r\.venv\Scripts\pythonw.exe" -Argument "`"$r\dictate.py`"" -WorkingDirectory $r
-    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $atLogon = New-ScheduledTaskTrigger -AtLogOn -User $env:USERNAME
+    $onUnlock = Get-CimClass -Namespace Root/Microsoft/Windows/TaskScheduler -ClassName MSFT_TaskSessionStateChangeTrigger |
+        New-CimInstance -ClientOnly -Property @{ StateChange = 8 }  # 8 = session unlock
     $settings = New-ScheduledTaskSettingsSet -RestartInterval (New-TimeSpan -Minutes 1) -RestartCount 10 -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew
-    Register-ScheduledTask -TaskName "AI Voice Dictation" -Action $action -Trigger $trigger -Settings $settings -RunLevel Limited -Force
+    Register-ScheduledTask -TaskName "AI Voice Dictation" -Action $action -Trigger $atLogon, $onUnlock -Settings $settings -RunLevel Limited -Force
 
 To start immediately without rebooting: `Start-ScheduledTask -TaskName "AI Voice Dictation"`
+
+**Why an unlock trigger too:** `RestartOnFailure` doesn't reliably retry a logon-only trigger, and a
+logon-triggered task never refires just because the machine woke from sleep. If the process dies
+mid-sleep (e.g. the GPU/audio device goes stale across a long standby), it would otherwise stay dead
+until the next full logoff or reboot. Locking and unlocking the screen now recovers it. Check
+`dictate.log` (next to `dictate.py`) if it happens again — a fatal error now leaves a traceback there
+instead of vanishing into `pythonw.exe`'s nonexistent console.
 
 ## Choosing a model (GPU load vs. accuracy)
 
