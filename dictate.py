@@ -387,7 +387,22 @@ class App:
             logging.info("IDLE")
 
 
+_instance_mutex = None
+
+
+def _exit_if_already_running():
+    # ponytail: Task Scheduler's IgnoreNew only dedupes instances *it* launches; a manual
+    # run stacks on top invisibly (pythonw has no window). Named mutex catches that case too.
+    global _instance_mutex
+    ERROR_ALREADY_EXISTS = 183
+    _instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "DictateSingleInstanceMutex")
+    if ctypes.GetLastError() == ERROR_ALREADY_EXISTS:
+        logging.info("Another instance is already running, exiting.")
+        raise SystemExit(0)
+
+
 def main():
+    _exit_if_already_running()
     logging.info("Starting dictation (first run downloads the model)...")
     app = App()
     keyboard.on_press_key(HOTKEY, lambda e: app.on_press() if e.name == HOTKEY else None)

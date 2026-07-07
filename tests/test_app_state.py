@@ -1,6 +1,8 @@
 import time
 import queue
+import ctypes
 import numpy as np
+import pytest
 import dictate
 
 
@@ -83,3 +85,12 @@ def test_short_clip_is_not_injected(monkeypatch):
     app.on_release()
     assert _wait_until(lambda: app.state == "IDLE")
     assert calls == []  # too short -> nothing injected
+
+
+def test_second_instance_exits():
+    dictate._exit_if_already_running()  # first call takes the mutex
+    try:
+        with pytest.raises(SystemExit):
+            dictate._exit_if_already_running()  # second call finds it held -> exits
+    finally:
+        ctypes.windll.kernel32.CloseHandle(dictate._instance_mutex)
