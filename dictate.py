@@ -322,6 +322,22 @@ class Overlay(tk.Tk):
         self.after(50, self._tick)
 
 
+def _default_speaker_volume():
+    """Resolve the *current* default playback endpoint. Called per mute request, not
+    cached: Windows' default device changes when USB/Bluetooth audio comes and goes,
+    and a cached endpoint silently mutes a device nobody is listening to.
+
+    ponytail: only resolves the eRender/eMultimedia default, not eConsole/eCommunications
+    (measured identical on this machine; a split-role USB speakerphone would miss a mute --
+    upgrade path is enumerating all three roles). Also resolved once per keypress with no
+    live device-change tracking, so a mid-recording default-device switch mutes/unmutes the
+    old device (benign: nothing stays stuck muted) -- upgrade path is an IMMNotificationClient
+    callback tracking the full set of newly-default endpoints."""
+    dev = AudioUtilities.GetSpeakers()
+    iface = dev._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+    return cast(iface, POINTER(IAudioEndpointVolume))
+
+
 class App:
     """Glues recorder + engine + injection behind a 3-state guard so overlapping
     key events are safe. State transitions are serialized by a lock."""
@@ -338,16 +354,30 @@ class App:
         threading.Thread(target=self._mute_worker, daemon=True).start()
 
     def _mute_worker(self):
-        comtypes.CoInitialize()
-        dev = AudioUtilities.GetSpeakers()
-        iface = dev._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        vol = cast(iface, POINTER(IAudioEndpointVolume))
+        try:
+            comtypes.CoInitialize()
+        except Exception:
+            logging.exception("mute worker could not init COM; muting disabled this run")
+            return
+        muted_vol = None  # the endpoint we actually muted, so unmute targets the same one
         while True:
             muted = self._mute_q.get()
+            if muted is None:
+                # ponytail: sentinel so tests can drive/stop this loop synchronously on
+                # the test thread; the daemon thread otherwise has no shutdown path.
+                return
             try:
-                vol.SetMute(muted, None)
+                if muted:
+                    muted_vol = _default_speaker_volume()
+                    muted_vol.SetMute(1, None)
+                else:
+                    if muted_vol is None:
+                        muted_vol = _default_speaker_volume()
+                    muted_vol.SetMute(0, None)
+                    muted_vol = None
             except Exception:
-                pass
+                logging.exception("mute worker failed")
+                muted_vol = None
 
     def on_press(self):
         # Windows sends key-repeat while held; the guard makes repeats no-ops.
