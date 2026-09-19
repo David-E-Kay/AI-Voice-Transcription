@@ -423,14 +423,17 @@ class App:
 
 
 _instance_mutex = None
+MUTEX_NAME = "DictateSingleInstanceMutex"
 
 
-def _exit_if_already_running():
+def _exit_if_already_running(name=MUTEX_NAME):
     # ponytail: Task Scheduler's IgnoreNew only dedupes instances *it* launches; a manual
     # run stacks on top invisibly (pythonw has no window). Named mutex catches that case too.
+    # `name` is a parameter only so tests can use a unique mutex instead of racing the
+    # real running app; production always uses the default.
     global _instance_mutex
     ERROR_ALREADY_EXISTS = 183
-    _instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, "DictateSingleInstanceMutex")
+    _instance_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, name)
     if ctypes.GetLastError() == ERROR_ALREADY_EXISTS:
         logging.info("Another instance is already running, exiting.")
         raise SystemExit(0)

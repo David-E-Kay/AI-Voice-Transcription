@@ -1,5 +1,7 @@
 import gc
+import os
 import time
+import uuid
 import queue
 import ctypes
 import numpy as np
@@ -111,12 +113,24 @@ def test_short_clip_is_not_injected(monkeypatch):
 
 
 def test_second_instance_exits():
-    dictate._exit_if_already_running()  # first call takes the mutex
+    # Unique name per run: the real app holds the production mutex whenever it is
+    # running, which used to make the first call here exit and fail the test.
+    name = f"DictateTestMutex-{os.getpid()}-{uuid.uuid4().hex}"
+    handles = []
     try:
+        dictate._exit_if_already_running(name)  # first call takes the mutex
+        handles.append(dictate._instance_mutex)
         with pytest.raises(SystemExit):
-            dictate._exit_if_already_running()  # second call finds it held -> exits
+            dictate._exit_if_already_running(name)  # second call finds it held -> exits
+        handles.append(dictate._instance_mutex)
     finally:
-        ctypes.windll.kernel32.CloseHandle(dictate._instance_mutex)
+        for h in handles:
+            ctypes.windll.kernel32.CloseHandle(h)
+
+
+def test_single_instance_mutex_name_is_unchanged():
+    # Guards the production default: renaming it silently breaks dedupe of real instances.
+    assert dictate.MUTEX_NAME == "DictateSingleInstanceMutex"
 
 
 def test_mute_resolves_default_device_each_time(monkeypatch):
