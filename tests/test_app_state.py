@@ -1,8 +1,10 @@
+import gc
 import time
 import queue
 import ctypes
 import numpy as np
 import pytest
+import comtypes
 import dictate
 
 
@@ -200,3 +202,60 @@ def test_worker_logs_and_exits_if_com_init_fails(monkeypatch, caplog):
 
     assert resolver_calls == []  # resolver never called
     assert any("com" in rec.getMessage().lower() for rec in caplog.records)
+
+
+def _resolve_and_drop_locals():
+    # Call inside a helper (rather than inline in the test) so the locals inside
+    # _default_speaker_volume itself -- and this wrapper's own `dev`/`iface` if any --
+    # have unambiguously gone out of scope by the time the caller holds the result.
+    return dictate._default_speaker_volume()
+
+
+def test_default_speaker_volume_pointer_survives_gc():
+    # Regression test for a real-COM reference-counting bug: _default_speaker_volume()
+    # used to return ctypes.cast(iface, POINTER(IAudioEndpointVolume)) instead of a
+    # properly reference-counted pointer. ctypes.cast() does not AddRef -- it keeps the
+    # source pointer alive via its own _objects bookkeeping instead of transferring
+    # ownership, so BOTH the source pointer and the cast pointer independently call
+    # Release() on the same underlying COM object when garbage collected. That
+    # double-free corrupts the heap and crashes the process with an access violation
+    # in _ctypes.pyd (0xc0000005) -- reliably reproduced standalone, but on a bare
+    # 50-iteration GetMute loop the corruption doesn't always escalate all the way to
+    # a hard crash inside pytest before the process exits (heap-timing dependent). So
+    # this test also watches the real refcount IUnknown.Release() reports: with the
+    # cast() bug, the double Release() sends it deep negative, which as an unsigned
+    # DWORD wraps to a huge number (observed ~4.29 billion) -- a value no correct
+    # single-owner release sequence can ever produce. A test with fake objects can't
+    # catch this -- it only manifests against real COM lifetime rules, so this talks
+    # to the real Windows audio endpoint (read-only: never calls SetMute).
+    try:
+        comtypes.CoInitialize()
+    except Exception:
+        pytest.skip("COM unavailable in this environment")
+    from comtypes._post_coinit.unknwn import IUnknown
+
+    orig_release = IUnknown.Release
+    refcounts_seen = []
+
+    def recording_release(self):
+        rc = orig_release(self)
+        refcounts_seen.append(rc)
+        return rc
+
+    try:
+        IUnknown.Release = recording_release
+        for _ in range(50):
+            vol = _resolve_and_drop_locals()
+            gc.collect()  # force any dropped COM references to be released now
+            muted = vol.GetMute()
+            assert muted in (0, 1)
+            del vol
+            gc.collect()  # force the returned pointer's own release now, each iteration
+    finally:
+        IUnknown.Release = orig_release
+        comtypes.CoUninitialize()
+
+    # A correctly-owned pointer's refcount only ever counts down from a small number
+    # (a handful of endpoint/enumerator objects) to 0. A wrapped/negative value here
+    # means something got Release()'d more times than it was ever AddRef()'d.
+    assert all(0 <= rc < 1000 for rc in refcounts_seen), refcounts_seen

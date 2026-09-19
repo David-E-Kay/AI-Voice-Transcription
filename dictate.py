@@ -15,7 +15,6 @@ import numpy as np
 import sounddevice as sd
 import pyperclip
 import keyboard
-from ctypes import cast, POINTER
 import comtypes
 from comtypes import CLSCTX_ALL
 from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
@@ -332,10 +331,16 @@ def _default_speaker_volume():
     upgrade path is enumerating all three roles). Also resolved once per keypress with no
     live device-change tracking, so a mid-recording default-device switch mutes/unmutes the
     old device (benign: nothing stays stuck muted) -- upgrade path is an IMMNotificationClient
-    callback tracking the full set of newly-default endpoints."""
+    callback tracking the full set of newly-default endpoints.
+
+    Must use QueryInterface here, not ctypes.cast: ctypes.cast keeps the source pointer
+    alive via its _objects reference instead of transferring ownership, so both the
+    source and the cast pointer independently Release() the same COM object when they
+    are garbage collected -- a double-free that corrupts the heap and crashes with an
+    access violation in _ctypes.pyd, sometimes several calls later."""
     dev = AudioUtilities.GetSpeakers()
     iface = dev._dev.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-    return cast(iface, POINTER(IAudioEndpointVolume))
+    return iface.QueryInterface(IAudioEndpointVolume)
 
 
 class App:
