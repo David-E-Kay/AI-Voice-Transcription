@@ -61,6 +61,21 @@ Pipeline on release: `Recorder.stop()` → `is_too_short` guard (drops <300 ms a
   emulator (mintty, PuTTY, conhost, Windows Terminal — see `_TERMINAL_CLASSES` in
   `dictate.py`); non-text clipboard contents are lost during a dictation; elevated/admin
   windows swallow the hotkey (Windows UIPI).
+- **`ctypes.cast` on a COM interface is a double-free.** `ctypes.cast(iface, POINTER(X))`
+  does not transfer COM ownership — it just parks the source pointer in the result's
+  `_objects`, so both pointers `Release()` the same object at GC time. That corrupts the
+  heap and kills the process with an access violation (`0xc0000005`) inside `_ctypes.pyd`,
+  usually several calls later, with no Python traceback; under `pythonw.exe` the only
+  evidence is Task Scheduler's `Last Result: -1073741819` and an "Application Error" event.
+  Use `iface.QueryInterface(X)` (it `AddRef`s and returns an independently owned pointer);
+  `comtypes.cast` is also correct — the name collision with `ctypes.cast` is half the trap.
+  It hid for months because the old `_mute_worker` held `dev`/`iface`/`vol` as locals of a
+  function that never returned, so nothing was ever released; extracting
+  `_default_speaker_volume()` let them go out of scope and fired it. "This has worked for
+  ages" was never evidence of correctness here. Guard:
+  `test_default_speaker_volume_pointer_survives_gc` in `tests/test_app_state.py` resolves
+  the real endpoint 50× with `gc.collect()` between and asserts the refcount never wraps
+  negative.
 
 ## Conventions
 
