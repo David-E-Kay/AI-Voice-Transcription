@@ -3,6 +3,19 @@ Kept separate so they unit-test without importing keyboard/sounddevice/faster_wh
 import numpy as np
 
 
+ENGINES = ("whisper", "phonon")
+
+
+def engine_name(value):
+    """Resolve the DICTATE_ENGINE env value to a known engine. Unset/blank -> 'whisper'
+    (the default); case and surrounding whitespace are ignored; anything else raises so a
+    typo fails loudly at startup instead of silently falling back to Whisper's VRAM use."""
+    name = (value or "").strip().lower() or "whisper"
+    if name not in ENGINES:
+        raise ValueError(f"DICTATE_ENGINE={value!r}: expected one of {', '.join(ENGINES)}")
+    return name
+
+
 def clean_text(text):
     """Normalize Whisper output for injection: strip ends, collapse internal whitespace."""
     return " ".join(text.split())

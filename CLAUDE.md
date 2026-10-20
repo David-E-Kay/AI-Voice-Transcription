@@ -43,6 +43,11 @@ Two modules, split deliberately by testability:
 key-repeat (while held) and taps-during-processing into no-ops. Tests in
 `tests/test_app_state.py` drive `App` with fake Recorder/Engine to assert these transitions.
 
+Engine choice: `make_engine()` reads `DICTATE_ENGINE` (`whisper` default → `Engine`, faster-whisper
+on GPU; `phonon` → `PhononEngine`, Phonon-2 via the optional `fermion-research` package, CPU only,
+0 VRAM). Both expose the same `transcribe(audio) -> str`; `engine_name()` in `dictate_core.py`
+validates the env value.
+
 Pipeline on release: `Recorder.stop()` → `is_too_short` guard (drops <300 ms accidental taps)
 → `Engine.transcribe` (greedy `beam_size=1`, fixed English, VAD) → `clean_text` → `inject`.
 

@@ -1,6 +1,8 @@
 pycaw
 comtypes
 faster-whisper==1.2.1
+# Optional CPU engine (DICTATE_ENGINE=phonon). Tested: fermion-research==0.2.12 on Python 3.14.
+# fermion-research
 sounddevice==0.5.5
 numpy==2.5.0
 keyboard==0.13.5

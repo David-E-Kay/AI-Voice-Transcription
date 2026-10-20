@@ -21,7 +21,7 @@ from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
 
 from PIL import Image, ImageDraw, ImageTk
 
-from dictate_core import frames_to_audio, is_too_short, clean_text, backdrop_box
+from dictate_core import frames_to_audio, is_too_short, clean_text, backdrop_box, engine_name
 
 SAMPLE_RATE = 16000
 HOTKEY = "right ctrl"
@@ -122,6 +122,35 @@ class Engine:
         )
         return "".join(seg.text for seg in segments)
 
+
+class PhononEngine:
+    """Pre-warmed Phonon-2 engine (FermionResearch, pip `fermion-research`). Runs on the
+    CPU, so it holds no VRAM at all — the point of offering it next to Whisper. English
+    only, emits its own punctuation/casing. ~2 s load, ~0.2 s per 10 s clip on an
+    i9-11900H. Weights are CC-BY-4.0 (attribution if redistributed).
+
+    ponytail: no VAD pass here (faster-whisper's lives inside faster_whisper); leading/
+    trailing silence just costs a few ms on CPU. Add a VAD trim only if silence ever
+    produces junk words."""
+
+    def __init__(self, model="phonon-2"):
+        import fermion  # heavy import (torch CPU + transformers) deferred to construction
+        logging.info(f"Loading {model} on cpu (fermion {getattr(fermion, '__version__', '?')})...")
+        self.model = fermion.load_speech(model)  # first run downloads ~0.16 GB to ~/.cache/fermion
+        self.model.transcribe_array(np.zeros(SAMPLE_RATE, dtype=np.float32))  # warm-up
+
+    def transcribe(self, audio):
+        text, decode_s, audio_s = self.model.transcribe_array(audio)
+        logging.info(f"phonon: {audio_s:.1f} s audio decoded in {decode_s:.2f} s")
+        return text
+
+
+def make_engine():
+    """Pick the transcription engine from DICTATE_ENGINE: 'whisper' (default, GPU) or
+    'phonon' (CPU, frees Whisper's ~1.6 GB of VRAM). See README "Choosing a model"."""
+    if engine_name(os.environ.get("DICTATE_ENGINE")) == "phonon":
+        return PhononEngine()
+    return Engine()
 
 # ponytail: window classes where plain Ctrl+V isn't reliable paste (mintty/Git Bash binds
 # it to something else by default; legacy conhost needs "Ctrl key shortcuts" enabled).
@@ -349,7 +378,7 @@ class App:
 
     def __init__(self):
         self.recorder = Recorder()
-        self.engine = Engine()
+        self.engine = make_engine()
         self.overlay = Overlay(self.recorder)
         self.state = "IDLE"
         self.lock = threading.Lock()

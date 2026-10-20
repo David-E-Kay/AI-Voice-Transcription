@@ -52,3 +52,22 @@ def test_backdrop_box_offsets_are_symmetric():
     box_w, box_h, off_x, off_y = backdrop_box(137, 100)
     assert box_w == 137 + 2 * off_x
     assert box_h == 100 + 2 * off_y
+
+
+import pytest
+from dictate_core import engine_name
+
+
+def test_engine_name_defaults_to_whisper():
+    assert engine_name(None) == "whisper"
+    assert engine_name("  ") == "whisper"
+
+
+def test_engine_name_normalizes_case_and_whitespace():
+    assert engine_name(" Phonon ") == "phonon"
+    assert engine_name("WHISPER") == "whisper"
+
+
+def test_engine_name_rejects_unknown():
+    with pytest.raises(ValueError, match="DICTATE_ENGINE"):
+        engine_name("parakeet")
