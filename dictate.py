@@ -117,10 +117,14 @@ class Engine:
     def transcribe(self, audio):
         # Greedy (beam_size=1) for latency; fixed English skips language detection;
         # VAD trims silence for speed + accuracy.
+        t0 = time.perf_counter()
         segments, _ = self.model.transcribe(
             audio, language="en", beam_size=1, vad_filter=True,
         )
-        return "".join(seg.text for seg in segments)
+        text = "".join(seg.text for seg in segments)  # segments is lazy: decoding happens here
+        logging.info(f"whisper: {len(audio) / SAMPLE_RATE:.1f} s audio decoded in "
+                     f"{time.perf_counter() - t0:.2f} s")
+        return text
 
 
 class PhononEngine:
