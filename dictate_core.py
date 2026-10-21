@@ -1,5 +1,7 @@
 """Pure helpers for the dictation utility — numpy-only, no hardware/heavy imports.
 Kept separate so they unit-test without importing keyboard/sounddevice/faster_whisper."""
+import re
+
 import numpy as np
 
 
@@ -43,3 +45,22 @@ def backdrop_box(wf_w, wf_h, pad_x_frac=0.15, pad_y_frac=0.10):
     off_x = round(wf_w * pad_x_frac)
     off_y = round(wf_h * pad_y_frac)
     return wf_w + 2 * off_x, wf_h + 2 * off_y, off_x, off_y
+
+
+def normalize_words(text):
+    """Lowercase word list with punctuation stripped, for WER scoring. Keeps apostrophes
+    inside words ("don't") and digits; "5" vs "five" still counts as an error."""
+    return re.findall(r"[a-z0-9]+(?:'[a-z0-9]+)*", text.lower().replace("’", "'"))
+
+
+def word_errors(ref, hyp):
+    """Word-level edit distance (substitutions + insertions + deletions) between two
+    texts after normalize_words. Returns (errors, reference_word_count); WER = e / n."""
+    r, h = normalize_words(ref), normalize_words(hyp)
+    prev = list(range(len(h) + 1))
+    for i, rw in enumerate(r, 1):
+        cur = [i]
+        for j, hw in enumerate(h, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (rw != hw)))
+        prev = cur
+    return prev[-1], len(r)

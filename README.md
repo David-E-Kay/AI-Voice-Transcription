@@ -92,6 +92,15 @@ or permanently, restarting the autostart task so it takes effect:
 Stop-ScheduledTask  -TaskName "AI Voice Dictation"; Start-ScheduledTask -TaskName "AI Voice Dictation"
 ```
 
+**Comparing the two on your own voice.** `bench_engines.py` records you reading a set of
+dictation-style prompts once, then runs both engines on the same clips and prints word error
+rate (case and punctuation ignored), per-clip latency, load time and VRAM. Stop the dictation
+app first so the two don't share the GPU:
+
+    Stop-ScheduledTask -TaskName "AI Voice Dictation"
+    .\.venv\Scripts\python.exe bench_engines.py record   # ~5 min; clips go to bench/ (git-ignored)
+    .\.venv\Scripts\python.exe bench_engines.py run      # prints the comparison table
+
 The first Phonon run downloads the model (~0.16 GB) to `~/.cache/fermion`. Each transcription
 logs its decode time to `dictate.log`, handy for comparing against Whisper.
 

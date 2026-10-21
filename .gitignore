@@ -7,3 +7,4 @@ __pycache__/
 # Internal tooling & planning — keep out of the public repo
 .claude/
 docs/superpowers/
+bench/
