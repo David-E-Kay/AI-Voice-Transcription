@@ -67,7 +67,7 @@ def _wait_until(predicate, timeout=3.0):
 def _build_app(monkeypatch):
     calls = []
     monkeypatch.setattr(dictate, "Recorder", FakeRecorder)
-    monkeypatch.setattr(dictate, "Engine", FakeEngine)
+    monkeypatch.setattr(dictate, "make_engine", FakeEngine)
     monkeypatch.setattr(dictate, "Overlay", FakeOverlay)
     monkeypatch.setattr(dictate, "inject", lambda t: calls.append(t))
     # Hermetic: without this, App() starts a real mute worker that makes real COM calls

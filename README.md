@@ -69,6 +69,41 @@ Write-Host "DICTATE_MODEL set to $model."
 
 `DICTATE_DEVICE=cpu` auto-uses `int8` compute; override with `DICTATE_COMPUTE` if you need to.
 
+### Phonon-2 engine (0 GB VRAM, CPU)
+
+[Phonon-2](https://huggingface.co/FermionResearch/Phonon-2) is a 164 MB English model distilled
+from NVIDIA Parakeet TDT 0.6B. It runs on the CPU, so it frees all of Whisper's VRAM, and it
+scores better than `large-v3-turbo` on the Open ASR Leaderboard (5.2 % vs 6.6 % average WER).
+Measured on an i9-11900H: ~2 s to load, ~0.2 s to transcribe a 10 s clip. Weights are CC-BY-4.0.
+
+It's an optional extra (pulls in CPU-only torch + transformers, ~0.5 GB of packages):
+
+    pip install fermion-research
+
+Then switch engines with `DICTATE_ENGINE` (`whisper` is the default; `DICTATE_MODEL` /
+`DICTATE_DEVICE` / `DICTATE_COMPUTE` only apply to Whisper). Try it for one session:
+
+    $env:DICTATE_ENGINE = "phonon"; python dictate.py
+
+or permanently, restarting the autostart task so it takes effect:
+
+```powershell
+[Environment]::SetEnvironmentVariable("DICTATE_ENGINE", "phonon", "User")   # "whisper" to switch back
+Stop-ScheduledTask  -TaskName "AI Voice Dictation"; Start-ScheduledTask -TaskName "AI Voice Dictation"
+```
+
+**Comparing the two on your own voice.** `bench_engines.py` records you reading a set of
+dictation-style prompts once, then runs both engines on the same clips and prints word error
+rate (case and punctuation ignored), per-clip latency, load time and VRAM. Stop the dictation
+app first so the two don't share the GPU:
+
+    Stop-ScheduledTask -TaskName "AI Voice Dictation"
+    .\.venv\Scripts\python.exe bench_engines.py record   # ~5 min; clips go to bench/ (git-ignored)
+    .\.venv\Scripts\python.exe bench_engines.py run      # prints the comparison table
+
+The first Phonon run downloads the model (~0.16 GB) to `~/.cache/fermion`. Each transcription
+logs its decode time to `dictate.log`, handy for comparing against Whisper.
+
 **Free the VRAM for a gaming/rendering session** without uninstalling — stop the background
 task (it restarts at next login, or `Start-ScheduledTask` it):
 

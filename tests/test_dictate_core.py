@@ -52,3 +52,43 @@ def test_backdrop_box_offsets_are_symmetric():
     box_w, box_h, off_x, off_y = backdrop_box(137, 100)
     assert box_w == 137 + 2 * off_x
     assert box_h == 100 + 2 * off_y
+
+
+import pytest
+from dictate_core import engine_name
+
+
+def test_engine_name_defaults_to_whisper():
+    assert engine_name(None) == "whisper"
+    assert engine_name("  ") == "whisper"
+
+
+def test_engine_name_normalizes_case_and_whitespace():
+    assert engine_name(" Phonon ") == "phonon"
+    assert engine_name("WHISPER") == "whisper"
+
+
+def test_engine_name_rejects_unknown():
+    with pytest.raises(ValueError, match="DICTATE_ENGINE"):
+        engine_name("parakeet")
+
+
+from dictate_core import normalize_words, word_errors
+
+
+def test_normalize_words_ignores_case_and_punctuation():
+    assert normalize_words("Hello, World! Don’t stop.") == ["hello", "world", "don't", "stop"]
+
+
+def test_word_errors_identical_is_zero():
+    assert word_errors("The cat sat.", "the cat sat") == (0, 3)
+
+
+def test_word_errors_counts_sub_ins_del():
+    assert word_errors("the cat sat", "the bat sat") == (1, 3)        # substitution
+    assert word_errors("the cat sat", "the cat sat down") == (1, 3)   # insertion
+    assert word_errors("the cat sat", "cat sat") == (1, 3)            # deletion
+
+
+def test_word_errors_empty_hypothesis_is_all_deletions():
+    assert word_errors("one two three", "") == (3, 3)
